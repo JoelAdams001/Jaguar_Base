@@ -3,7 +3,7 @@ Launch file with params for jag_color node
 -->
 
 <launch>
-  <node name="jag_color_new" pkg="jaguar_base" type="jag_color_new" >
+  <node name="jag_color" pkg="jaguar_base" type="jag_color" >
 
     <!-- MAIN PARAMS -->
     <param name="img_topic_in"      type="string"  value="/left/usb_cam/image_rect_color" />
