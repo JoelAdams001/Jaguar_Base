@@ -1,0 +1,26 @@
+<!--
+Launch file with params for jag_color node
+-->
+
+<launch>
+  <node name="jag_color_new" pkg="jaguar_base" type="jag_color_new" >
+
+    <!-- MAIN PARAMS -->
+    <param name="img_topic_in"      type="string"  value="/left/usb_cam/image_rect_color" />
+    <param name="pc2_topic_in"      type="string"  value="/pointcloud1" />
+    <param name="pc2_topic_out"     type="string"  value="/rplidar/cloud_color" />
+    <param name="camera_info_topic" type="string"  value="/left/usb_cam/camera_info" />
+
+    <param name="img_frame"         type="string"  value="usb_cam_left" />
+    <param name="pc2_frame"         type="string"  value="rplidar_laser" />
+    <param name="odom_frame"        type="string"  value="ekf_odom" />
+
+    <!-- OTHER PARAMS -->
+    <param name="img_shift_x"       type="int"     value="0" />
+    <param name="img_shift_y"       type="int"     value="0" />
+    <param name="queue_size"        type="int"     value="10" />
+
+  </node>
+</launch>
+
+
