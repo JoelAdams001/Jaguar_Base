@@ -29,6 +29,14 @@ tf2_ros::Buffer tfbuffer;
 ros::Publisher cloud_pub;
 pcl::PCLPointCloud2::Ptr full_cloud(new pcl::PCLPointCloud2);
 
+// GLOBAL VARIABLES
+std::string img_topic_in, pc2_topic_in, pc2_topic_out;
+std::string camera_info_topic;
+std::string odom_frame, pc2_frame, img_frame;
+int img_shift_x, img_shift_y, queue_size;
+bool is_voxel;
+double voxel_size;
+
 void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::CameraInfoPtr& info, const sensor_msgs::PointCloud2Ptr& cloud)
 {
   image_geometry::PinholeCameraModel cam_model;
@@ -57,12 +65,13 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
   for(size_t i = 0; i < pcl_cloud.size() ; ++i)
   {
     geometry_msgs::PointStamped pt_velo, pt_usb;
-    pt_velo.header.frame_id = "velodyne";
+    pt_velo.header.frame_id = pc2_frame;
     pt_velo.point.x = static_cast<double>(pc_xyz.points[i].x);
     pt_velo.point.y = static_cast<double>(pc_xyz.points[i].y);
     pt_velo.point.z = static_cast<double>(pc_xyz.points[i].z);
+
     try {
-      tfbuffer.transform(pt_velo, pt_usb, "usb_cam");
+      tfbuffer.transform(pt_velo, pt_usb, img_frame);
     } catch (tf2::TransformException &ex) {
       ROS_WARN("%s",ex.what());
       ros::Duration(1.0).sleep();
@@ -76,10 +85,10 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
 //    ROS_INFO("h:%10.5f  w:%10.5f ", pt_usb.point.x, pt_usb.point.y);
     if(imagePoint.x > 0 && imagePoint.x < info->width
        && imagePoint.y > 0 && imagePoint.y < info->height
-       && pc_xyz.points[i].x > 0){
+       && pt_usb.point.z > 0){    // Testing < and >
       int u = static_cast<int>(imagePoint.x);
       int v = static_cast<int>(imagePoint.y);
-      cv::Vec3b colour = cv_ptr->image.at<cv::Vec3b>(v + 52, u - 17);
+      cv::Vec3b colour = cv_ptr->image.at<cv::Vec3b>(v + img_shift_y, u + img_shift_x); // img offsets
 
       uchar b = colour.val[0];
       uchar g = colour.val[1];
@@ -97,19 +106,21 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
   }  
   geometry_msgs::TransformStamped lid_odom;
   try {
-    lid_odom = tfbuffer.lookupTransform("camera_odom_frame", "velodyne", cloud->header.stamp);
+    lid_odom = tfbuffer.lookupTransform(odom_frame, pc2_frame, cloud->header.stamp);
   } catch (tf2::TransformException &ex) {
     ROS_WARN("%s",ex.what());
     ros::Duration(0.1).sleep();
   }
 
+  // Transform pc2 into odom frame
   tf::Transform lid_odom_tf;
   tf::transformMsgToTF(lid_odom.transform, lid_odom_tf);
   PCLCloud cloud_out;
   pcl_ros::transformPointCloud(pcl_cloud, cloud_out, lid_odom_tf);
 
-  cloud_out.header.frame_id = "camera_odom_frame";
+  cloud_out.header.frame_id = odom_frame;
 
+  // Obtain partial pc2 by filtering our parts without color
   pcl::PCLPointCloud2::Ptr pcl_partial(new pcl::PCLPointCloud2);
   pcl::toPCLPointCloud2(cloud_out, *pcl_partial);
 
@@ -118,33 +129,58 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
   ext.setNegative(true);
   ext.filter(*pcl_partial);
 
-  pcl::concatenatePointCloud(*full_cloud, *pcl_partial, *full_cloud);
+  // Apply voxelfilter to full cloud
+  if(is_voxel == true){
+    pcl::concatenatePointCloud(*full_cloud, *pcl_partial, *full_cloud);
 
-  pcl::VoxelGrid<pcl::PCLPointCloud2> vg;
-  vg.setInputCloud(full_cloud);
-  vg.setLeafSize(0.01f, 0.01f, 0.01f);
-  vg.filter(*full_cloud);
+    pcl::VoxelGrid<pcl::PCLPointCloud2> vg;
+    vg.setInputCloud(full_cloud);
+    vg.setLeafSize(voxel_size, voxel_size, voxel_size);
+    vg.filter(*full_cloud);
+  }
+
+  // Apply statistical filter to full cloud
 //  pcl::StatisticalOutlierRemoval<pcl::PCLPointCloud2> outlier;
 //  outlier.setInputCloud(full_cloud);
 //  outlier.setMeanK(50);
 //  outlier.setStddevMulThresh(2.0);
 //  outlier.filter(*full_cloud);
 
-  cloud_pub.publish(*full_cloud);
+  if(is_voxel == true)
+    cloud_pub.publish(*full_cloud);
+  else
+    cloud_pub.publish(*pcl_partial);
 }
 
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "jag_color");
-  ros::NodeHandle nh;
+  ros::NodeHandle nh("~");
+
+  nh.getParam("img_topic_in", img_topic_in);
+  nh.getParam("pc2_topic_in", pc2_topic_in);
+  nh.getParam("pc2_topic_out", pc2_topic_out);
+  nh.getParam("camera_info_topic", camera_info_topic);
+
+  nh.getParam("odom_frame", odom_frame);
+  nh.getParam("pc2_frame", pc2_frame);
+  nh.getParam("img_frame", img_frame);
+
+  nh.getParam("img_shift_x", img_shift_x);
+  nh.getParam("img_shift_y", img_shift_y);
+  nh.getParam("queue_size", queue_size);
+
+  nh.getParam("is_voxel", is_voxel);
+  nh.getParam("voxel_size", voxel_size);
+
   image_transport::ImageTransport it(nh);
   tf2_ros::TransformListener tf_listener(tfbuffer);
-  cloud_pub = nh.advertise<sensor_msgs::PointCloud2> ("pclcloud", 1);
-  message_filters::Subscriber<sensor_msgs::Image> image_sub(nh, "usb_cam/image_rect_color", 1);
-  message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nh, "usb_cam/camera_info", 1);
-  message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nh, "velodyne_points", 1);
+  cloud_pub = nh.advertise<sensor_msgs::PointCloud2> (pc2_topic_out, 1);
+  message_filters::Subscriber<sensor_msgs::Image> image_sub(nh, img_topic_in, 1);
+  message_filters::Subscriber<sensor_msgs::CameraInfo> info_sub(nh, camera_info_topic, 1);
+  message_filters::Subscriber<sensor_msgs::PointCloud2> cloud_sub(nh, pc2_topic_in, 1);
   typedef sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::PointCloud2> SyncPolicy;
-  Synchronizer<SyncPolicy> sync(SyncPolicy(2), image_sub, info_sub, cloud_sub);
+  Synchronizer<SyncPolicy> sync(SyncPolicy(queue_size), image_sub, info_sub, cloud_sub); // Changed from 2 to 10
   sync.registerCallback(callback);
   ros::spin();
   pcl::PCDWriter obj;
