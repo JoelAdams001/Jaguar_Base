@@ -20,6 +20,9 @@ Launch file with params for jag_color node
     <param name="img_shift_y"       type="int"     value="0" />
     <param name="queue_size"        type="int"     value="10" />
 
+    <param name="is_voxel"          type="bool"    value="false" />
+    <param name="voxel_size"        type="float"   value="0.01"
+
   </node>
 </launch>
 

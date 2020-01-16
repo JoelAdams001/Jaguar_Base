@@ -34,6 +34,8 @@ std::string img_topic_in, pc2_topic_in, pc2_topic_out;
 std::string camera_info_topic;
 std::string odom_frame, pc2_frame, img_frame;
 int img_shift_x, img_shift_y, queue_size;
+bool is_voxel
+float voxel_size
 
 void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::CameraInfoPtr& info, const sensor_msgs::PointCloud2Ptr& cloud)
 {
@@ -110,6 +112,7 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
     ros::Duration(0.1).sleep();
   }
 
+  // Transform pc2 into odom frame
   tf::Transform lid_odom_tf;
   tf::transformMsgToTF(lid_odom.transform, lid_odom_tf);
   PCLCloud cloud_out;
@@ -117,6 +120,7 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
 
   cloud_out.header.frame_id = odom_frame;
 
+  // Obtain partial pc2 by filtering our parts without color
   pcl::PCLPointCloud2::Ptr pcl_partial(new pcl::PCLPointCloud2);
   pcl::toPCLPointCloud2(cloud_out, *pcl_partial);
 
@@ -125,19 +129,27 @@ void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::Camera
   ext.setNegative(true);
   ext.filter(*pcl_partial);
 
-  pcl::concatenatePointCloud(*full_cloud, *pcl_partial, *full_cloud);
+  // Apply voxelfilter to full cloud
+  if(is_voxel == true){
+    pcl::concatenatePointCloud(*full_cloud, *pcl_partial, *full_cloud);
 
-  pcl::VoxelGrid<pcl::PCLPointCloud2> vg;
-  vg.setInputCloud(full_cloud);
-  vg.setLeafSize(0.01f, 0.01f, 0.01f);
-  vg.filter(*full_cloud);
+    pcl::VoxelGrid<pcl::PCLPointCloud2> vg;
+    vg.setInputCloud(full_cloud);
+    vg.setLeafSize(voxel_size, voxel_size, voxel_size);
+    vg.filter(*full_cloud);
+  }
+
+  // Apply statistical filter to full cloud
 //  pcl::StatisticalOutlierRemoval<pcl::PCLPointCloud2> outlier;
 //  outlier.setInputCloud(full_cloud);
 //  outlier.setMeanK(50);
 //  outlier.setStddevMulThresh(2.0);
 //  outlier.filter(*full_cloud);
 
-  cloud_pub.publish(*full_cloud);
+  if(is_voxel == true)
+    cloud_pub.publish(*full_cloud);
+  else
+    cloud_pub.publish(*pcl_partial);
 }
 
 int main(int argc, char **argv)
@@ -149,6 +161,7 @@ int main(int argc, char **argv)
   nh.getParam("pc2_topic_in", pc2_topic_in);
   nh.getParam("pc2_topic_out", pc2_topic_out);
   nh.getParam("camera_info_topic", camera_info_topic);
+
   nh.getParam("odom_frame", odom_frame);
   nh.getParam("pc2_frame", pc2_frame);
   nh.getParam("img_frame", img_frame);
@@ -156,6 +169,9 @@ int main(int argc, char **argv)
   nh.getParam("img_shift_x", img_shift_x);
   nh.getParam("img_shift_y", img_shift_y);
   nh.getParam("queue_size", queue_size);
+
+  nh.getParam("is_voxel", is_voxel);
+  nh.getParam("voxel_size", voxel_size);
 
   image_transport::ImageTransport it(nh);
   tf2_ros::TransformListener tf_listener(tfbuffer);
