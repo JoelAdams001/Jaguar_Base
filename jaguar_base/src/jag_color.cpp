@@ -34,8 +34,8 @@ std::string img_topic_in, pc2_topic_in, pc2_topic_out;
 std::string camera_info_topic;
 std::string odom_frame, pc2_frame, img_frame;
 int img_shift_x, img_shift_y, queue_size;
-bool is_voxel
-float voxel_size
+bool is_voxel;
+double voxel_size;
 
 void callback(const sensor_msgs::ImageConstPtr& image, const sensor_msgs::CameraInfoPtr& info, const sensor_msgs::PointCloud2Ptr& cloud)
 {
